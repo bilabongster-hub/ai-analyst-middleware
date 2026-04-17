@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: ai-analyst-middleware
+    runtime: node
+    plan: free
+    rootDir: middleware
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
