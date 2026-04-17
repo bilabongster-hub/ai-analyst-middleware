@@ -7,14 +7,6 @@ const sharedToken = process.env.SALESFORCE_SHARED_TOKEN;
 
 app.use(express.json({ limit: '2mb' }));
 
-function getBearerToken(req) {
-    const authHeader = req.header('authorization') || '';
-    if (!authHeader.toLowerCase().startsWith('bearer ')) {
-        return null;
-    }
-    return authHeader.slice(7).trim();
-}
-
 function requireSharedToken(req, res, next) {
     if (!sharedToken) {
         return res.status(500).json({
@@ -23,8 +15,8 @@ function requireSharedToken(req, res, next) {
         });
     }
 
-    const bearerToken = getBearerToken(req);
-    if (bearerToken !== sharedToken) {
+    const inboundToken = (req.header('x-salesforce-token') || '').trim();
+    if (inboundToken !== sharedToken) {
         return res.status(401).json({
             success: false,
             error: 'Unauthorized middleware request'
