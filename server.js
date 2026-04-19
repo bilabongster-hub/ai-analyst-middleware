@@ -1,4 +1,10 @@
 import express from 'express';
+import {
+    checkDatabaseHealth,
+    findSubscriberByOrgId,
+    getEntitlementsForSubscriber,
+    isDatabaseConfigured
+} from './db.js';
 
 const app = express();
 const port = process.env.PORT || 10000;
@@ -36,7 +42,18 @@ function buildProviderRequest(model, payload) {
 app.get('/health', (_req, res) => {
     res.json({
         ok: true,
-        service: 'ai-analyst-middleware'
+        service: 'ai-analyst-middleware',
+        databaseConfigured: isDatabaseConfigured()
+    });
+});
+
+app.get('/health/dependencies', async (_req, res) => {
+    const database = await checkDatabaseHealth();
+    res.json({
+        ok: database.healthy || !database.configured,
+        service: 'ai-analyst-middleware',
+        openAiConfigured: Boolean(openAiApiKey),
+        database
     });
 });
 
@@ -88,6 +105,59 @@ app.post('/api/narrate', requireSharedToken, async (req, res) => {
         return res.status(500).json({
             success: false,
             error: error.message || 'Unexpected middleware error'
+        });
+    }
+});
+
+app.post('/api/license-status', requireSharedToken, async (req, res) => {
+    try {
+        if (!isDatabaseConfigured()) {
+            return res.status(500).json({
+                success: false,
+                error: 'Middleware is missing DATABASE_URL'
+            });
+        }
+
+        const { orgId } = req.body || {};
+        if (!orgId) {
+            return res.status(400).json({
+                success: false,
+                error: 'orgId is required'
+            });
+        }
+
+        const subscriber = await findSubscriberByOrgId(orgId);
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                error: 'Subscriber org not found'
+            });
+        }
+
+        const entitlements = await getEntitlementsForSubscriber(subscriber.id);
+        return res.json({
+            success: true,
+            subscriber: {
+                orgId: subscriber.org_id,
+                installationId: subscriber.installation_id,
+                accountName: subscriber.account_name,
+                status: subscriber.status
+            },
+            entitlements: entitlements.map((entitlement) => ({
+                productName: entitlement.product_name,
+                edition: entitlement.edition,
+                isActive: entitlement.is_active,
+                trialStartDate: entitlement.trial_start_date,
+                trialEndDate: entitlement.trial_end_date,
+                middlewareEnabled: entitlement.middleware_enabled,
+                enterpriseEnabled: entitlement.enterprise_enabled,
+                metadata: entitlement.metadata || {}
+            }))
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            error: error.message || 'Unexpected license-status error'
         });
     }
 });
