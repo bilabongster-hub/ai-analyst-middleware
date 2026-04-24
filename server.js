@@ -2,6 +2,7 @@ import express from 'express';
 import { randomUUID } from 'crypto';
 import {
     checkDatabaseHealth,
+    findSubscriberByMiddlewareToken,
     findSubscriberByOrgId,
     getEntitlementsForSubscriber,
     getPool,
@@ -15,21 +16,29 @@ const sharedToken = process.env.SALESFORCE_SHARED_TOKEN;
 
 app.use(express.json({ limit: '2mb' }));
 
-function requireSharedToken(req, res, next) {
-    if (!sharedToken) {
-        return res.status(500).json({
-            success: false,
-            error: 'Middleware is missing SALESFORCE_SHARED_TOKEN'
-        });
-    }
-
+async function requireSalesforceToken(req, res, next) {
     const inboundToken = (req.header('x-salesforce-token') || '').trim();
-    if (inboundToken !== sharedToken) {
+    if (!inboundToken) {
         return res.status(401).json({
             success: false,
             error: 'Unauthorized middleware request'
         });
     }
+
+    if (sharedToken && inboundToken === sharedToken) {
+        req.authorizedSubscriber = null;
+        return next();
+    }
+
+    const subscriber = await findSubscriberByMiddlewareToken(inboundToken);
+    if (!subscriber) {
+        return res.status(401).json({
+            success: false,
+            error: 'Unauthorized middleware request'
+        });
+    }
+
+    req.authorizedSubscriber = subscriber;
 
     next();
 }
@@ -144,7 +153,7 @@ app.post('/api/subscriber-bootstrap', async (req, res) => {
     }
 });
 
-app.post('/api/narrate', requireSharedToken, async (req, res) => {
+app.post('/api/narrate', requireSalesforceToken, async (req, res) => {
     try {
         if (!openAiApiKey) {
             return res.status(500).json({
@@ -197,7 +206,7 @@ app.post('/api/narrate', requireSharedToken, async (req, res) => {
     }
 });
 
-app.post('/api/license-status', requireSharedToken, async (req, res) => {
+app.post('/api/license-status', requireSalesforceToken, async (req, res) => {
     try {
         if (!isDatabaseConfigured()) {
             return res.status(500).json({

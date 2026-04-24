@@ -86,6 +86,24 @@ export async function findSubscriberByOrgId(orgId) {
     return result.rows[0] || null;
 }
 
+export async function findSubscriberByMiddlewareToken(middlewareToken) {
+    if (!isDatabaseConfigured() || !middlewareToken) {
+        return null;
+    }
+
+    const result = await getPool().query(
+        `
+        SELECT id, org_id, installation_id, account_name, status, middleware_token
+        FROM subscribers
+        WHERE middleware_token = $1
+        LIMIT 1
+        `,
+        [middlewareToken]
+    );
+
+    return result.rows[0] || null;
+}
+
 export async function getEntitlementsForSubscriber(subscriberId) {
     if (!isDatabaseConfigured() || !subscriberId) {
         return [];
