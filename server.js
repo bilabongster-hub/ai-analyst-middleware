@@ -1,4 +1,12 @@
 import express from 'express';
+import { randomUUID } from 'crypto';
+import {
+    checkDatabaseHealth,
+    findSubscriberByOrgId,
+    getEntitlementsForSubscriber,
+    getPool,
+    isDatabaseConfigured
+} from './db.js';import express from 'express';
 import {
     checkDatabaseHealth,
     findSubscriberByOrgId,
@@ -56,6 +64,91 @@ app.get('/health/dependencies', async (_req, res) => {
         database
     });
 });
+async function ensureSubscriberMiddlewareToken(subscriberId) {
+    const existing = await getPool().query(
+        `
+        SELECT middleware_token
+        FROM subscribers
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [subscriberId]
+    );
+
+    const existingToken = existing.rows[0]?.middleware_token;
+    if (existingToken) {
+        return existingToken;
+    }
+
+    const newToken = `${randomUUID().replace(/-/g, '')}${randomUUID().replace(/-/g, '')}`;
+
+    await getPool().query(
+        `
+        UPDATE subscribers
+        SET middleware_token = $1
+        WHERE id = $2
+        `,
+        [newToken, subscriberId]
+    );
+
+    return newToken;
+}
+
+app.post('/api/subscriber-bootstrap', async (req, res) => {
+    try {
+        if (!isDatabaseConfigured()) {
+            return res.status(500).json({
+                success: false,
+                error: 'Middleware is missing DATABASE_URL'
+            });
+        }
+
+        const { orgId } = req.body || {};
+        if (!orgId) {
+            return res.status(400).json({
+                success: false,
+                error: 'orgId is required'
+            });
+        }
+
+        const subscriber = await findSubscriberByOrgId(orgId);
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                error: 'Subscriber org not found'
+            });
+        }
+
+        const middlewareToken = await ensureSubscriberMiddlewareToken(subscriber.id);
+        const entitlements = await getEntitlementsForSubscriber(subscriber.id);
+
+        return res.json({
+            success: true,
+            middlewareToken,
+            subscriber: {
+                orgId: subscriber.org_id,
+                installationId: subscriber.installation_id,
+                accountName: subscriber.account_name,
+                status: subscriber.status
+            },
+            entitlements: entitlements.map((entitlement) => ({
+                productName: entitlement.product_name,
+                edition: entitlement.edition,
+                isActive: entitlement.is_active,
+                trialStartDate: entitlement.trial_start_date,
+                trialEndDate: entitlement.trial_end_date,
+                middlewareEnabled: entitlement.middleware_enabled,
+                enterpriseEnabled: entitlement.enterprise_enabled,
+                metadata: entitlement.metadata || {}
+            }))
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            error: error.message || 'Unexpected subscriber-bootstrap error'
+        });
+    }
+});
 
 app.post('/api/narrate', requireSharedToken, async (req, res) => {
     try {
@@ -89,7 +182,8 @@ app.post('/api/narrate', requireSharedToken, async (req, res) => {
         if (!providerResponse.ok) {
             return res.status(providerResponse.status).json({
                 success: false,
-                error: providerJson?.error?.message || 'OpenAI request failed'
+                error: 'AI provider request failed',
+                providerStatus: providerResponse.status
             });
         }
 
