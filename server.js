@@ -6,12 +6,6 @@ import {
     getEntitlementsForSubscriber,
     getPool,
     isDatabaseConfigured
-} from './db.js';import express from 'express';
-import {
-    checkDatabaseHealth,
-    findSubscriberByOrgId,
-    getEntitlementsForSubscriber,
-    isDatabaseConfigured
 } from './db.js';
 
 const app = express();
