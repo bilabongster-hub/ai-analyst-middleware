@@ -156,6 +156,7 @@ app.post('/api/subscriber-bootstrap', async (req, res) => {
 app.post('/api/narrate', requireSalesforceToken, async (req, res) => {
     try {
         if (!openAiApiKey) {
+            console.error('[middleware] OPENAI_API_KEY is missing');
             return res.status(500).json({
                 success: false,
                 error: 'Middleware is missing OPENAI_API_KEY'
@@ -171,6 +172,14 @@ app.post('/api/narrate', requireSalesforceToken, async (req, res) => {
             });
         }
 
+        console.log('[middleware] narrate request', JSON.stringify({
+            product,
+            operation,
+            edition,
+            model,
+            inputLength: String(payload.input).length
+        }));
+
         const providerResponse = await fetch('https://api.openai.com/v1/responses', {
             method: 'POST',
             headers: {
@@ -180,13 +189,24 @@ app.post('/api/narrate', requireSalesforceToken, async (req, res) => {
             body: JSON.stringify(buildProviderRequest(model, payload))
         });
 
-        const providerJson = await providerResponse.json();
+        const providerBodyText = await providerResponse.text();
+        let providerJson = null;
+        try {
+            providerJson = providerBodyText ? JSON.parse(providerBodyText) : null;
+        } catch (parseError) {
+            console.error('[middleware] OpenAI response was not JSON', parseError.message);
+        }
 
         if (!providerResponse.ok) {
+            console.error('[middleware] OpenAI request failed', JSON.stringify({
+                statusCode: providerResponse.status,
+                bodyPreview: providerBodyText ? providerBodyText.slice(0, 500) : null
+            }));
             return res.status(providerResponse.status).json({
                 success: false,
                 error: 'AI provider request failed',
-                providerStatus: providerResponse.status
+                providerStatus: providerResponse.status,
+                providerErrorPreview: providerBodyText ? providerBodyText.slice(0, 500) : null
             });
         }
 
@@ -195,10 +215,11 @@ app.post('/api/narrate', requireSalesforceToken, async (req, res) => {
             product,
             operation,
             edition,
-            usage: providerJson.usage || null,
+            usage: providerJson?.usage || null,
             providerResponse: providerJson
         });
     } catch (error) {
+        console.error('[middleware] narrate exception', error);
         return res.status(500).json({
             success: false,
             error: error.message || 'Unexpected middleware error'
