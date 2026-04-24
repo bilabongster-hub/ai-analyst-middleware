@@ -156,7 +156,6 @@ app.post('/api/subscriber-bootstrap', async (req, res) => {
 app.post('/api/narrate', requireSalesforceToken, async (req, res) => {
     try {
         if (!openAiApiKey) {
-            console.error('[middleware] OPENAI_API_KEY is missing');
             return res.status(500).json({
                 success: false,
                 error: 'Middleware is missing OPENAI_API_KEY'
@@ -171,14 +170,6 @@ app.post('/api/narrate', requireSalesforceToken, async (req, res) => {
                 error: 'Missing required fields'
             });
         }
-
-        console.log('[middleware] narrate request', JSON.stringify({
-            product,
-            operation,
-            edition,
-            model,
-            inputLength: String(payload.input).length
-        }));
 
         const providerResponse = await fetch('https://api.openai.com/v1/responses', {
             method: 'POST',
@@ -198,15 +189,10 @@ app.post('/api/narrate', requireSalesforceToken, async (req, res) => {
         }
 
         if (!providerResponse.ok) {
-            console.error('[middleware] OpenAI request failed', JSON.stringify({
-                statusCode: providerResponse.status,
-                bodyPreview: providerBodyText ? providerBodyText.slice(0, 500) : null
-            }));
             return res.status(providerResponse.status).json({
                 success: false,
                 error: 'AI provider request failed',
-                providerStatus: providerResponse.status,
-                providerErrorPreview: providerBodyText ? providerBodyText.slice(0, 500) : null
+                providerStatus: providerResponse.status
             });
         }
 
@@ -219,7 +205,6 @@ app.post('/api/narrate', requireSalesforceToken, async (req, res) => {
             providerResponse: providerJson
         });
     } catch (error) {
-        console.error('[middleware] narrate exception', error);
         return res.status(500).json({
             success: false,
             error: error.message || 'Unexpected middleware error'
